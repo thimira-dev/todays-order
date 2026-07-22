@@ -1,13 +1,13 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { Croissant, ListChecks, Receipt } from 'lucide-react'
+import { IsoCroissant, IsoClipboard, IsoReceipt } from './components/icons'
 import OrderScreen from './pages/OrderScreen'
 import PreRunChecklist from './pages/PreRunChecklist'
 import RunSettlement from './pages/RunSettlement'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Order', icon: Croissant, end: true },
-  { to: '/checklist', label: 'Checklist', icon: ListChecks, end: false },
-  { to: '/settlement', label: 'Settlement', icon: Receipt, end: false },
+  { to: '/', label: 'Order', icon: IsoCroissant, end: true },
+  { to: '/checklist', label: 'Checklist', icon: IsoClipboard, end: false },
+  { to: '/settlement', label: 'Settlement', icon: IsoReceipt, end: false },
 ]
 
 function App() {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Banknote, HandCoins, CreditCard, CheckCircle2, Bell, BellRing } from 'lucide-react'
+import { IsoBanknote, IsoCoins, IsoCreditCard, IsoCheckCircle, IsoBell, IsoBellRing } from '../components/icons'
+import LoadingScreen from '../components/LoadingScreen'
 import { getAvailableMenuItems, getCurrentRun, createOrder } from '../lib/api'
 import { subscribeToPush, isPushSupported } from '../lib/push'
 
@@ -8,19 +9,19 @@ const PAYMENT_METHODS = [
     value: 'exact_cash',
     label: 'Exact Cash',
     description: 'You hand over the exact amount',
-    icon: Banknote,
+    icon: IsoBanknote,
   },
   {
     value: 'cash_change',
     label: 'Cash with Change',
     description: 'You need change back',
-    icon: HandCoins,
+    icon: IsoCoins,
   },
   {
     value: 'card',
     label: 'Physical Card',
     description: 'Pay with a card on collection',
-    icon: CreditCard,
+    icon: IsoCreditCard,
   },
 ]
 
@@ -127,13 +128,7 @@ function OrderScreen() {
 
   // ── Loading / error / no-run states ──────────────────────────────────────
   if (loading) {
-    return (
-      <div className="mx-auto max-w-md">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center text-sm text-gray-500 shadow-sm">
-          Loading today&apos;s run…
-        </div>
-      </div>
-    )
+    return <LoadingScreen message="Loading today's run…" />
   }
 
   if (loadError) {
@@ -172,7 +167,7 @@ function OrderScreen() {
       <div className="mx-auto max-w-md">
         <div className="space-y-4 rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-green-800">
-            <CheckCircle2 className="h-5 w-5" />
+            <IsoCheckCircle className="h-5 w-5" />
             <h2 className="text-lg font-semibold">Order placed!</h2>
           </div>
           <dl className="space-y-2 text-sm text-green-900">
@@ -207,13 +202,13 @@ function OrderScreen() {
               disabled={notifyState === 'working'}
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-300 bg-white py-2.5 text-sm font-medium text-green-800 transition hover:bg-green-100 disabled:opacity-50"
             >
-              <Bell className="h-4 w-4" />
+              <IsoBell className="h-4 w-4" />
               {notifyState === 'working' ? 'Subscribing…' : 'Notify me about this run'}
             </button>
           )}
           {notifyState === 'done' && (
             <p className="flex items-center justify-center gap-2 text-sm text-green-800">
-              <BellRing className="h-4 w-4" />
+              <IsoBellRing className="h-4 w-4" />
               You&apos;ll get a push notification when the run updates.
             </p>
           )}

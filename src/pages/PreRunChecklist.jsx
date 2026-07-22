@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Banknote, CreditCard, Lock, ShoppingCart, CheckCircle2 } from 'lucide-react'
+import { IsoBanknote, IsoCreditCard, IsoLock, IsoCart, IsoCheckCircle } from '../components/icons'
+import LoadingScreen from '../components/LoadingScreen'
 import { getLatestRun, getOrdersForRun, markPaymentCollected, lockRun } from '../lib/api'
 import { sendPushToAll } from '../lib/push'
 
@@ -126,13 +127,7 @@ function PreRunChecklist() {
 
   // ── Loading / error / no-run states ──────────────────────────────────────
   if (loading) {
-    return (
-      <div className="mx-auto max-w-md">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center text-sm text-gray-500 shadow-sm">
-          Loading checklist…
-        </div>
-      </div>
-    )
+    return <LoadingScreen message="Loading checklist…" />
   }
 
   if (loadError && !run) {
@@ -186,7 +181,7 @@ function PreRunChecklist() {
 
       {locked && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
-          <Lock className="h-4 w-4 shrink-0" />
+          <IsoLock className="h-4 w-4 shrink-0" />
           Run locked — no new orders accepted.
         </div>
       )}
@@ -201,7 +196,7 @@ function PreRunChecklist() {
           <ul className="space-y-2">
             {orders.map((order) => {
               const isCollected = collected.has(order.id)
-              const PaymentIcon = order.payment_method === 'card' ? CreditCard : Banknote
+              const PaymentIcon = order.payment_method === 'card' ? IsoCreditCard : IsoBanknote
               const primary = order.expand?.primary_item
               const fallback = order.expand?.fallback_item
 
@@ -246,7 +241,7 @@ function PreRunChecklist() {
           {/* Shopping list summary */}
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4 text-gray-500" />
+              <IsoCart className="h-4 w-4 text-gray-500" />
               <h3 className="text-sm font-semibold text-gray-900">
                 Shopping List Summary
               </h3>
@@ -292,7 +287,7 @@ function PreRunChecklist() {
       {/* Start shopping */}
       {locked ? (
         <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white">
-          <CheckCircle2 className="h-4 w-4" />
+          <IsoCheckCircle className="h-4 w-4" />
           Run locked — happy shopping!
         </div>
       ) : (

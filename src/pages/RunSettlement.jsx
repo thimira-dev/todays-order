@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { CreditCard, Banknote, CheckCircle2, Undo2 } from 'lucide-react'
+import { IsoCreditCard, IsoBanknote, IsoCheckCircle, IsoUndo } from '../components/icons'
+import LoadingScreen from '../components/LoadingScreen'
 import {
   getLatestRun,
   getOrdersForRun,
@@ -163,13 +164,7 @@ function RunSettlement() {
 
   // ── Loading / error / no-run states ──────────────────────────────────────
   if (loading) {
-    return (
-      <div className="mx-auto max-w-md">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center text-sm text-gray-500 shadow-sm">
-          Loading settlement…
-        </div>
-      </div>
-    )
+    return <LoadingScreen message="Loading settlement…" />
   }
 
   if (loadError) {
@@ -223,7 +218,7 @@ function RunSettlement() {
 
       {completed && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-800">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <IsoCheckCircle className="h-4 w-4 shrink-0" />
           Run completed — settled and closed.
         </div>
       )}
@@ -286,7 +281,7 @@ function RunSettlement() {
                           : 'border border-gray-300 text-gray-600 hover:border-gray-400'
                       } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
-                      {isOutOfStock && <Undo2 className="h-3 w-3" />}
+                      {isOutOfStock && <IsoUndo className="h-3 w-3" />}
                       {isOutOfStock ? 'Restock' : 'Out of Stock'}
                     </button>
                   </div>
@@ -329,7 +324,7 @@ function RunSettlement() {
               {rows.map(({ order, effective }) => {
                 const cost = Number(costMap[order.id] ?? 0)
                 const dist = getDistribution(order, effective, cost)
-                const Icon = order.payment_method === 'card' ? CreditCard : Banknote
+                const Icon = order.payment_method === 'card' ? IsoCreditCard : IsoBanknote
 
                 return (
                   <li
@@ -363,7 +358,7 @@ function RunSettlement() {
       {/* Complete run */}
       {completed ? (
         <div className="flex items-center justify-center gap-2 rounded-lg bg-green-600 py-3 text-sm font-medium text-white">
-          <CheckCircle2 className="h-4 w-4" />
+          <IsoCheckCircle className="h-4 w-4" />
           Run completed
         </div>
       ) : (

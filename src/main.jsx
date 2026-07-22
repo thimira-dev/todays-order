@@ -11,3 +11,11 @@ createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+// Dismiss the boot splash once React has mounted
+const splash = document.getElementById('boot-splash')
+if (splash) {
+  splash.classList.add('hiding')
+  splash.addEventListener('transitionend', () => splash.remove(), { once: true })
+  setTimeout(() => splash.remove(), 500)
+}
