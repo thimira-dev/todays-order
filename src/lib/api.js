@@ -92,6 +92,7 @@ export async function createOrder({
   fallback_item_id = null,
   payment_method,
   amount_handed_over,
+  payment_note = null,
 }) {
   const run = await getCurrentRun()
   if (!run) {
@@ -105,7 +106,18 @@ export async function createOrder({
     fallback_item: fallback_item_id,
     payment_method,
     amount_handed_over,
+    payment_note,
   })
+}
+
+// 3b. Update an existing order (coworker editing their own order while open).
+export async function updateOrder(orderId, fields) {
+  return pb.collection('orders').update(orderId, fields)
+}
+
+// 3c. Delete an order (coworker cancelling their own order while open).
+export async function deleteOrder(orderId) {
+  return pb.collection('orders').delete(orderId)
 }
 
 // 4. Fetch all orders for a specific run, newest first.
@@ -125,9 +137,25 @@ export async function markPaymentCollected(orderId, collected) {
   })
 }
 
-// 6. Lock a run — no new orders accepted once the runner starts shopping.
+// 6. Run status transitions — the lifecycle is open -> locked -> closed.
+//    Reopening walks it back one step for accidental taps.
+export async function setRunStatus(runId, status) {
+  return pb.collection('runs').update(runId, { status })
+}
+
+// Lock a run — no new orders accepted once the runner starts shopping.
 export async function lockRun(runId) {
-  return pb.collection('runs').update(runId, { status: 'locked' })
+  return setRunStatus(runId, 'locked')
+}
+
+// Reopen a locked run (undo an accidental lock) — orders accepted again.
+export async function reopenRunToOpen(runId) {
+  return setRunStatus(runId, 'open')
+}
+
+// Reopen a closed run (undo an accidental complete) — back to settlement.
+export async function reopenRunToLocked(runId) {
+  return setRunStatus(runId, 'locked')
 }
 
 // 7. Record what actually happened at the bakery for an order:
@@ -138,7 +166,14 @@ export async function updateOrderSettlement(orderId, { out_of_stock, actual_cost
 
 // 8. Complete a run — settlement done, change distributed back at the office.
 export async function completeRun(runId) {
-  return pb.collection('runs').update(runId, { status: 'closed' })
+  return setRunStatus(runId, 'closed')
+}
+
+// 8b. Open today's run from the app — no more daily PocketBase admin work.
+export async function createRun() {
+  const today = new Date()
+  const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  return pb.collection('runs').create({ date, status: 'open' })
 }
 
 // 9. Save a web-push subscription (one per browser endpoint).

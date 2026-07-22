@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
-import { IsoCreditCard, IsoBanknote, IsoCheckCircle, IsoUndo } from '../components/icons'
+import { IsoCreditCard, IsoBanknote, IsoCheckCircle, IsoLock, IsoUndo } from '../components/icons'
 import LoadingScreen from '../components/LoadingScreen'
+import pb from '../lib/pocketbase'
 import {
   getLatestRun,
   getOrdersForRun,
   updateOrderSettlement,
   completeRun,
+  reopenRunToLocked,
 } from '../lib/api'
 import { sendPushToAll } from '../lib/push'
 
-// What the coworker actually receives, given out-of-stock status:
-// { item, cancelled } — cancelled when the primary is out and there is no fallback.
 function getEffectiveItem(order, isOutOfStock) {
   if (!isOutOfStock) {
     return { item: order.expand?.primary_item ?? null, cancelled: false }
@@ -19,7 +19,6 @@ function getEffectiveItem(order, isOutOfStock) {
   return fallback ? { item: fallback, cancelled: false } : { item: null, cancelled: true }
 }
 
-// The instruction for what to hand back to the coworker at the office.
 function getDistribution(order, effective, cost) {
   if (order.payment_method === 'card') {
     return { kind: 'card', label: `Return ${order.payment_note || 'Physical Card'}` }
@@ -41,6 +40,35 @@ const DISTRIBUTION_STYLES = {
   cancelled: 'border-gray-200 bg-gray-100 text-gray-600',
 }
 
+function getMoneySummary(rows, costMap) {
+  let cashCollected = 0
+  let bakerySpend = 0
+  let changeReturn = 0
+  let collectMore = 0
+  let cardCount = 0
+
+  for (const { order, effective } of rows) {
+    const cost = Number(costMap[order.id] ?? 0)
+    if (order.payment_method === 'cash') {
+      cashCollected += order.amount_handed_over ?? 0
+      if (effective.cancelled) {
+        changeReturn += order.amount_handed_over ?? 0
+      } else {
+        bakerySpend += cost
+        const diff = (order.amount_handed_over ?? 0) - cost
+        if (diff >= 0) {
+          changeReturn += diff
+        } else {
+          collectMore += -diff
+        }
+      }
+    } else {
+      cardCount++
+    }
+  }
+  return { cashCollected, bakerySpend, changeReturn, collectMore, cardCount }
+}
+
 function RunSettlement() {
   const [run, setRun] = useState(null)
   const [orders, setOrders] = useState([])
@@ -52,7 +80,10 @@ function RunSettlement() {
   const [actionError, setActionError] = useState(null)
 
   const completed = run !== null && run.status === 'closed'
+  const locked = run !== null && run.status === 'locked'
+  const editable = locked && !completed
 
+  // ── Load the latest run, then follow run changes in realtime ─────────────
   useEffect(() => {
     let cancelled = false
 
@@ -65,7 +96,9 @@ function RunSettlement() {
           const runOrders = await getOrdersForRun(latestRun.id)
           if (cancelled) return
           setOrders(runOrders)
-          setOosMap(Object.fromEntries(runOrders.map((o) => [o.id, Boolean(o.out_of_stock)])))
+          setOosMap(
+            Object.fromEntries(runOrders.map((o) => [o.id, Boolean(o.out_of_stock)])),
+          )
           setCostMap(
             Object.fromEntries(
               runOrders.map((o) => {
@@ -84,10 +117,72 @@ function RunSettlement() {
     }
 
     load()
+
+    pb.collection('runs').subscribe('*', async () => {
+      try {
+        const latestRun = await getLatestRun()
+        if (!cancelled) setRun(latestRun)
+      } catch {
+        // transient — next event retries
+      }
+    })
+
     return () => {
       cancelled = true
+      pb.collection('runs').unsubscribe('*')
     }
   }, [])
+
+  // ── Orders for the current run: initial load + realtime with merge ───────
+  useEffect(() => {
+    if (!run?.id) {
+      setOrders([])
+      setOosMap({})
+      setCostMap({})
+      return
+    }
+
+    let cancelled = false
+
+    async function loadOrders() {
+      try {
+        const fresh = await getOrdersForRun(run.id)
+        if (cancelled) return
+        setOrders(fresh)
+        setOosMap(
+          Object.fromEntries(fresh.map((o) => [o.id, Boolean(o.out_of_stock)])),
+        )
+        setCostMap((prev) => {
+          const newIds = new Set(fresh.map((o) => o.id))
+          const next = { ...prev }
+          for (const o of fresh) {
+            if (o.actual_cost != null) {
+              next[o.id] = String(o.actual_cost)
+            } else if (!(o.id in prev)) {
+              const effective = getEffectiveItem(o, Boolean(o.out_of_stock))
+              next[o.id] = effective.item ? String(effective.item.price) : ''
+            }
+          }
+          for (const id of Object.keys(next)) {
+            if (!newIds.has(id)) delete next[id]
+          }
+          return next
+        })
+      } catch {
+        // transient — next event retries
+      }
+    }
+
+    loadOrders()
+    pb.collection('orders').subscribe('*', loadOrders, {
+      filter: `run = "${run.id}"`,
+    })
+
+    return () => {
+      cancelled = true
+      pb.collection('orders').unsubscribe('*')
+    }
+  }, [run?.id])
 
   const rows = orders.map((order) => {
     const isOutOfStock = Boolean(oosMap[order.id])
@@ -95,17 +190,19 @@ function RunSettlement() {
     return { order, isOutOfStock, effective }
   })
 
-  // Every purchased (non-cancelled) order needs an actual cost before completing.
-  const canComplete = rows.every(
-    ({ effective, order }) =>
-      effective.cancelled || (costMap[order.id] !== '' && Number(costMap[order.id]) >= 0),
-  )
+  const canComplete =
+    editable &&
+    rows.every(
+      ({ effective, order }) =>
+        effective.cancelled ||
+        (costMap[order.id] !== '' && Number(costMap[order.id]) >= 0),
+    )
 
   async function toggleOutOfStock(order) {
+    if (!editable) return
     const next = !oosMap[order.id]
     const previous = oosMap[order.id]
 
-    // Optimistic update + refill cost with the newly effective item's price
     setOosMap((prev) => ({ ...prev, [order.id]: next }))
     const effective = getEffectiveItem(order, next)
     setCostMap((prev) => ({
@@ -116,10 +213,9 @@ function RunSettlement() {
     try {
       await updateOrderSettlement(order.id, {
         out_of_stock: next,
-        actual_cost: null, // reset until the runner enters the real cost
+        actual_cost: null,
       })
     } catch {
-      // Revert on failure
       setOosMap((prev) => ({ ...prev, [order.id]: previous }))
       const reverted = getEffectiveItem(order, Boolean(previous))
       setCostMap((prev) => ({
@@ -130,22 +226,26 @@ function RunSettlement() {
   }
 
   async function handleComplete() {
-    if (completing) return
+    if (!canComplete || completing) return
     setCompleting(true)
     setActionError(null)
     try {
-      await Promise.all(
-        rows.map(({ order, isOutOfStock, effective }) =>
-          updateOrderSettlement(order.id, {
+      for (const { order, isOutOfStock, effective } of rows) {
+        try {
+          await updateOrderSettlement(order.id, {
             out_of_stock: isOutOfStock,
             actual_cost: effective.cancelled ? null : Number(costMap[order.id]),
-          }),
-        ),
-      )
+          })
+        } catch (err) {
+          throw new Error(
+            `Failed to settle "${order.coworker_name}": ${err.message ?? 'server error'}`,
+          )
+        }
+      }
+
       const closed = await completeRun(run.id)
       setRun(closed)
 
-      // Best-effort push — completing succeeded even if this fails
       try {
         await sendPushToAll({
           title: 'Bakery Run',
@@ -156,9 +256,25 @@ function RunSettlement() {
         // ignore push failures
       }
     } catch (err) {
-      setActionError(err.message ?? 'Failed to complete the run')
+      setActionError(err.message)
     } finally {
       setCompleting(false)
+    }
+  }
+
+  async function handleReopen() {
+    if (
+      !window.confirm(
+        'Reopen settlement? The run will be set back to locked so you can adjust costs.',
+      )
+    ) {
+      return
+    }
+    try {
+      const updated = await reopenRunToLocked(run.id)
+      setRun(updated)
+    } catch (err) {
+      setActionError(err.message ?? 'Failed to reopen the settlement')
     }
   }
 
@@ -167,7 +283,7 @@ function RunSettlement() {
     return <LoadingScreen message="Loading settlement…" />
   }
 
-  if (loadError) {
+  if (loadError && !run) {
     return (
       <div className="mx-auto max-w-md">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center shadow-sm">
@@ -190,7 +306,7 @@ function RunSettlement() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">No runs yet</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Create a run in PocketBase to get started.
+            Open a run from the Checklist tab to get started.
           </p>
         </div>
       </div>
@@ -209,7 +325,11 @@ function RunSettlement() {
         </div>
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-            completed ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+            completed
+              ? 'bg-green-100 text-green-800'
+              : locked
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-gray-100 text-gray-600'
           }`}
         >
           {run.status}
@@ -220,6 +340,13 @@ function RunSettlement() {
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-800">
           <IsoCheckCircle className="h-4 w-4 shrink-0" />
           Run completed — settled and closed.
+        </div>
+      )}
+
+      {!locked && !completed && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+          <IsoLock className="h-4 w-4 shrink-0" />
+          Lock the run from the Checklist tab before settling.
         </div>
       )}
 
@@ -255,7 +382,7 @@ function RunSettlement() {
                       {effective.cancelled ? (
                         <p className="mt-0.5 text-sm text-gray-500">
                           <span className="line-through">{primary?.name}</span>
-                          {' '}— cancelled, no fallback
+                          {' — '}cancelled, no fallback
                         </p>
                       ) : isOutOfStock ? (
                         <p className="mt-0.5 text-sm">
@@ -273,7 +400,7 @@ function RunSettlement() {
 
                     <button
                       type="button"
-                      disabled={completed}
+                      disabled={!editable}
                       onClick={() => toggleOutOfStock(order)}
                       className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
                         isOutOfStock
@@ -300,7 +427,7 @@ function RunSettlement() {
                         min="0"
                         step="1"
                         inputMode="numeric"
-                        disabled={completed}
+                        disabled={!editable}
                         value={costMap[order.id] ?? ''}
                         onChange={(e) =>
                           setCostMap((prev) => ({ ...prev, [order.id]: e.target.value }))
@@ -313,6 +440,47 @@ function RunSettlement() {
               )
             })}
           </ul>
+
+          {/* Money summary */}
+          {(() => {
+            const summary = getMoneySummary(rows, costMap)
+            if (summary.cashCollected === 0 && summary.cardCount === 0) return null
+            return (
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-gray-900">Money Summary</h3>
+                <div className="mt-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Cash collected</span>
+                    <span className="font-medium">Rs. {summary.cashCollected}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Bakery spend</span>
+                    <span className="font-medium">Rs. {summary.bakerySpend}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Change to return</span>
+                    <span className="font-medium">Rs. {summary.changeReturn}</span>
+                  </div>
+                  {summary.collectMore > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">To collect more</span>
+                      <span className="font-medium text-amber-700">
+                        Rs. {summary.collectMore}
+                      </span>
+                    </div>
+                  )}
+                  {summary.cardCount > 0 && (
+                    <div className="flex justify-between border-t border-gray-100 pt-1.5">
+                      <span className="text-gray-600">Card orders</span>
+                      <span className="font-medium">
+                        {summary.cardCount} card{summary.cardCount !== 1 ? 's' : ''} to return
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Distribution list */}
           <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -355,13 +523,17 @@ function RunSettlement() {
         </p>
       )}
 
-      {/* Complete run */}
+      {/* Complete run or reopen */}
       {completed ? (
-        <div className="flex items-center justify-center gap-2 rounded-lg bg-green-600 py-3 text-sm font-medium text-white">
-          <IsoCheckCircle className="h-4 w-4" />
-          Run completed
-        </div>
-      ) : (
+        <button
+          type="button"
+          onClick={handleReopen}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 py-3 text-sm font-medium text-gray-600 transition hover:border-gray-400"
+        >
+          <IsoUndo className="h-4 w-4" />
+          Reopen settlement
+        </button>
+      ) : editable ? (
         <div>
           <button
             type="button"
@@ -371,11 +543,16 @@ function RunSettlement() {
           >
             {completing ? 'Completing…' : 'Complete Run'}
           </button>
-          {!canComplete && (
+          {!canComplete && rows.length > 0 && (
             <p className="mt-2 text-center text-xs text-gray-500">
               Enter actual costs for all purchased items to complete the run.
             </p>
           )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-3 text-sm font-medium text-gray-500">
+          <IsoLock className="h-4 w-4" />
+          Lock the run to begin settlement
         </div>
       )}
     </div>

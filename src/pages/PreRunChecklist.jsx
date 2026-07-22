@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
-import { IsoBanknote, IsoCreditCard, IsoLock, IsoCart, IsoCheckCircle } from '../components/icons'
+import { IsoBanknote, IsoCreditCard, IsoLock, IsoCart, IsoCheckCircle, IsoUndo } from '../components/icons'
 import LoadingScreen from '../components/LoadingScreen'
-import { getLatestRun, getOrdersForRun, markPaymentCollected, lockRun } from '../lib/api'
+import pb from '../lib/pocketbase'
+import {
+  getLatestRun,
+  getOrdersForRun,
+  markPaymentCollected,
+  lockRun,
+  reopenRunToOpen,
+  createRun,
+} from '../lib/api'
 import { sendPushToAll } from '../lib/push'
 
 // Human-readable description of what the coworker is handing over.
@@ -28,6 +36,12 @@ function countItems(orders, key) {
   }, {})
 }
 
+const STATUS_STYLES = {
+  open: 'bg-green-100 text-green-800',
+  locked: 'bg-amber-100 text-amber-800',
+  closed: 'bg-gray-100 text-gray-600',
+}
+
 function PreRunChecklist() {
   const [run, setRun] = useState(null)
   const [orders, setOrders] = useState([])
@@ -35,25 +49,20 @@ function PreRunChecklist() {
   const [loadError, setLoadError] = useState(null)
   const [collected, setCollected] = useState(() => new Set())
   const [locking, setLocking] = useState(false)
+  const [opening, setOpening] = useState(false)
 
-  const locked = run !== null && run.status !== 'open'
+  const runOpen = run !== null && run.status === 'open'
+  const locked = run !== null && run.status === 'locked'
+  const closed = run !== null && run.status === 'closed'
 
+  // ── Load the latest run, then follow run changes in realtime ─────────────
   useEffect(() => {
     let cancelled = false
 
     async function load() {
       try {
         const latestRun = await getLatestRun()
-        if (cancelled) return
-        setRun(latestRun)
-        if (latestRun) {
-          const runOrders = await getOrdersForRun(latestRun.id)
-          if (cancelled) return
-          setOrders(runOrders)
-          setCollected(
-            new Set(runOrders.filter((o) => o.payment_collected).map((o) => o.id)),
-          )
-        }
+        if (!cancelled) setRun(latestRun)
       } catch (err) {
         if (!cancelled) setLoadError(err.message ?? 'Failed to load')
       } finally {
@@ -62,10 +71,56 @@ function PreRunChecklist() {
     }
 
     load()
+
+    // Live: new runs, locks, reopens and closures appear without a reload.
+    pb.collection('runs').subscribe('*', async () => {
+      try {
+        const latestRun = await getLatestRun()
+        if (!cancelled) setRun(latestRun)
+      } catch {
+        // transient — the next event retries
+      }
+    })
+
     return () => {
       cancelled = true
+      pb.collection('runs').unsubscribe('*')
     }
   }, [])
+
+  // ── Orders for the current run: initial load + realtime refetch ──────────
+  useEffect(() => {
+    if (!run?.id) {
+      setOrders([])
+      setCollected(new Set())
+      return
+    }
+
+    let cancelled = false
+
+    async function loadOrders() {
+      try {
+        const runOrders = await getOrdersForRun(run.id)
+        if (cancelled) return
+        setOrders(runOrders)
+        setCollected(
+          new Set(runOrders.filter((o) => o.payment_collected).map((o) => o.id)),
+        )
+      } catch {
+        // transient — the next realtime event retries
+      }
+    }
+
+    loadOrders()
+    pb.collection('orders').subscribe('*', loadOrders, {
+      filter: `run = "${run.id}"`,
+    })
+
+    return () => {
+      cancelled = true
+      pb.collection('orders').unsubscribe('*')
+    }
+  }, [run?.id])
 
   const primaryTotals = countItems(orders, 'primary_item')
   const fallbackTotals = countItems(orders, 'fallback_item')
@@ -101,8 +156,30 @@ function PreRunChecklist() {
     }
   }
 
+  async function handleOpenRun() {
+    if (opening) return
+    setOpening(true)
+    setLoadError(null)
+    try {
+      const newRun = await createRun()
+      setRun(newRun)
+    } catch (err) {
+      setLoadError(err.message ?? 'Failed to open the run')
+    } finally {
+      setOpening(false)
+    }
+  }
+
   async function handleStartShopping() {
     if (locking) return
+    if (
+      collected.size < orders.length &&
+      !window.confirm(
+        `Only ${collected.size} of ${orders.length} payments collected — lock the run and start shopping anyway?`,
+      )
+    ) {
+      return
+    }
     setLocking(true)
     try {
       const updated = await lockRun(run.id)
@@ -122,6 +199,22 @@ function PreRunChecklist() {
       setLoadError(err.message ?? 'Failed to lock the run')
     } finally {
       setLocking(false)
+    }
+  }
+
+  async function handleReopen() {
+    if (
+      !window.confirm(
+        'Reopen this run? Coworkers will be able to place and edit orders again.',
+      )
+    ) {
+      return
+    }
+    try {
+      const updated = await reopenRunToOpen(run.id)
+      setRun(updated)
+    } catch (err) {
+      setLoadError(err.message ?? 'Failed to reopen the run')
     }
   }
 
@@ -151,10 +244,23 @@ function PreRunChecklist() {
     return (
       <div className="mx-auto max-w-md">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">No runs yet</h2>
+          <h2 className="text-lg font-semibold text-gray-900">No run open today</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Create a run in PocketBase to get started.
+            Open today&apos;s run so coworkers can start ordering.
           </p>
+          <button
+            type="button"
+            onClick={handleOpenRun}
+            disabled={opening}
+            className="mt-4 w-full rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
+          >
+            {opening ? 'Opening…' : "Open today's run"}
+          </button>
+          {loadError && (
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {loadError}
+            </p>
+          )}
         </div>
       </div>
     )
@@ -171,9 +277,7 @@ function PreRunChecklist() {
           </p>
         </div>
         <span
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-            locked ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
-          }`}
+          className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[run.status] ?? STATUS_STYLES.closed}`}
         >
           {run.status}
         </span>
@@ -183,6 +287,13 @@ function PreRunChecklist() {
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
           <IsoLock className="h-4 w-4 shrink-0" />
           Run locked — no new orders accepted.
+        </div>
+      )}
+
+      {closed && (
+        <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2.5 text-sm text-gray-600">
+          <IsoCheckCircle className="h-4 w-4 shrink-0" />
+          This run is closed — shown for reference.
         </div>
       )}
 
@@ -284,13 +395,8 @@ function PreRunChecklist() {
         </p>
       )}
 
-      {/* Start shopping */}
-      {locked ? (
-        <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white">
-          <IsoCheckCircle className="h-4 w-4" />
-          Run locked — happy shopping!
-        </div>
-      ) : (
+      {/* Bottom action: lock / reopen / next run */}
+      {runOpen && (
         <div>
           <button
             type="button"
@@ -304,6 +410,34 @@ function PreRunChecklist() {
             {collected.size} of {orders.length} payments collected
           </p>
         </div>
+      )}
+
+      {locked && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-900 py-3 text-sm font-medium text-white">
+            <IsoCheckCircle className="h-4 w-4" />
+            Run locked — happy shopping!
+          </div>
+          <button
+            type="button"
+            onClick={handleReopen}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-600 transition hover:border-gray-400"
+          >
+            <IsoUndo className="h-4 w-4" />
+            Reopen run
+          </button>
+        </div>
+      )}
+
+      {closed && (
+        <button
+          type="button"
+          onClick={handleOpenRun}
+          disabled={opening}
+          className="w-full rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
+        >
+          {opening ? 'Opening…' : "Open today's run"}
+        </button>
       )}
     </div>
   )

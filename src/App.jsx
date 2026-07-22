@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, Link } from 'react-router-dom'
 import { IsoCroissant, IsoClipboard, IsoReceipt } from './components/icons'
 import OrderScreen from './pages/OrderScreen'
 import PreRunChecklist from './pages/PreRunChecklist'
@@ -24,6 +24,21 @@ function App() {
           <Route path="/" element={<OrderScreen />} />
           <Route path="/checklist" element={<PreRunChecklist />} />
           <Route path="/settlement" element={<RunSettlement />} />
+          <Route
+            path="*"
+            element={
+              <div className="mx-auto max-w-md text-center">
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="text-lg font-semibold text-gray-900">Page not found</h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    <Link to="/" className="text-gray-900 underline underline-offset-2 hover:no-underline">
+                      Go to order page
+                    </Link>
+                  </p>
+                </div>
+              </div>
+            }
+          />
         </Routes>
       </main>
 
