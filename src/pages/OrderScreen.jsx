@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import { getMyOrderIds, addMyOrderId, removeMyOrderId } from '../lib/myOrders'
 import { subscribeToPush, isPushSupported } from '../lib/push'
+import { playMascotReaction } from '../components/Mascot/mascotBus'
 
 const PAYMENT_METHODS = [
   {
@@ -209,6 +210,7 @@ function OrderScreen() {
           ...paymentFields,
         })
         resetForm()
+        playMascotReaction('success', 'Awesome job!', 3000)
       } else {
         const created = await createOrder({
           coworker_name: trimmedName,
@@ -219,11 +221,13 @@ function OrderScreen() {
         addMyOrderId(run.id, created.id)
         setMyIds(getMyOrderIds(run.id))
         setSubmitted(true)
+        playMascotReaction('success', 'Awesome job!', 3000)
       }
     } catch (err) {
       setSubmitError(
         err.message ?? `Failed to ${editingId ? 'update' : 'place'} the order`,
       )
+      playMascotReaction('error', "Oh no! Your order didn't go through — try again?", 4000)
     } finally {
       setSubmitting(false)
     }
@@ -263,8 +267,10 @@ function OrderScreen() {
       setMyIds(getMyOrderIds(run.id))
       setOrders((prev) => prev.filter((o) => o.id !== order.id))
       if (editingId === order.id) resetForm()
+      playMascotReaction('success', 'Poof! Order cancelled.', 3000)
     } catch (err) {
       setSubmitError(err.message ?? 'Failed to cancel the order')
+      playMascotReaction('error', "Hmm, I couldn't cancel that — one more try?", 4000)
     }
   }
 
@@ -273,8 +279,10 @@ function OrderScreen() {
     try {
       await subscribeToPush(coworkerName.trim() || null)
       setNotifyState('done')
+      playMascotReaction('success', "You're on the list — I'll ping you!", 3000)
     } catch {
       setNotifyState('error')
+      playMascotReaction('error', "Couldn't set up notifications, sorry!", 4000)
     }
   }
 

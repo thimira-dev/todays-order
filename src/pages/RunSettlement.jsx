@@ -10,6 +10,7 @@ import {
   reopenRunToLocked,
 } from '../lib/api'
 import { sendPushToAll } from '../lib/push'
+import { playMascotReaction } from '../components/Mascot/mascotBus'
 
 function getEffectiveItem(order, isOutOfStock) {
   if (!isOutOfStock) {
@@ -215,6 +216,11 @@ function RunSettlement() {
         out_of_stock: next,
         actual_cost: null,
       })
+      playMascotReaction(
+        'success',
+        next ? 'Marked as out of stock!' : 'Back in stock!',
+        2000,
+      )
     } catch {
       setOosMap((prev) => ({ ...prev, [order.id]: previous }))
       const reverted = getEffectiveItem(order, Boolean(previous))
@@ -222,6 +228,7 @@ function RunSettlement() {
         ...prev,
         [order.id]: reverted.item ? String(reverted.item.price) : '',
       }))
+      playMascotReaction('error', "That didn't save — try again?", 4000)
     }
   }
 
@@ -245,6 +252,7 @@ function RunSettlement() {
 
       const closed = await completeRun(run.id)
       setRun(closed)
+      playMascotReaction('success', 'All settled — great run!', 3000)
 
       try {
         await sendPushToAll({
@@ -257,6 +265,7 @@ function RunSettlement() {
       }
     } catch (err) {
       setActionError(err.message)
+      playMascotReaction('error', "Couldn't complete the run — check the costs?", 4000)
     } finally {
       setCompleting(false)
     }
@@ -273,8 +282,10 @@ function RunSettlement() {
     try {
       const updated = await reopenRunToLocked(run.id)
       setRun(updated)
+      playMascotReaction('success', 'Reopened — fix those numbers!', 3000)
     } catch (err) {
       setActionError(err.message ?? 'Failed to reopen the settlement')
+      playMascotReaction('error', "Couldn't reopen — try again?", 4000)
     }
   }
 

@@ -1,5 +1,7 @@
 import { Routes, Route, NavLink, Link } from 'react-router-dom'
 import { IsoCroissant, IsoClipboard, IsoReceipt } from './components/icons'
+import Mascot from './components/Mascot/Mascot'
+import { playMascotReaction } from './components/Mascot/mascotBus'
 import OrderScreen from './pages/OrderScreen'
 import PreRunChecklist from './pages/PreRunChecklist'
 import RunSettlement from './pages/RunSettlement'
@@ -61,6 +63,11 @@ function App() {
           ))}
         </div>
       </nav>
+
+      <Mascot
+        message="Need a hand with your order?"
+        onClick={() => playMascotReaction('wave', 'Hey there!', 3000)}
+      />
     </div>
   )
 }

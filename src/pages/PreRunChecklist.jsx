@@ -11,6 +11,7 @@ import {
   createRun,
 } from '../lib/api'
 import { sendPushToAll } from '../lib/push'
+import { playMascotReaction } from '../components/Mascot/mascotBus'
 
 // Human-readable description of what the coworker is handing over.
 function describePayment(order) {
@@ -142,6 +143,11 @@ function PreRunChecklist() {
 
     try {
       await markPaymentCollected(orderId, isCollected)
+      playMascotReaction(
+        'success',
+        isCollected ? 'Cha-ching! Payment marked!' : 'Okay, unmarked!',
+        2000,
+      )
     } catch {
       // Revert on failure
       setCollected((prev) => {
@@ -153,6 +159,7 @@ function PreRunChecklist() {
         }
         return next
       })
+      playMascotReaction('error', "That didn't save — check your connection?", 4000)
     }
   }
 
@@ -163,8 +170,10 @@ function PreRunChecklist() {
     try {
       const newRun = await createRun()
       setRun(newRun)
+      playMascotReaction('success', "Run's open — orders away!", 3000)
     } catch (err) {
       setLoadError(err.message ?? 'Failed to open the run')
+      playMascotReaction('error', "Couldn't open the run — try again?", 4000)
     } finally {
       setOpening(false)
     }
@@ -184,6 +193,7 @@ function PreRunChecklist() {
     try {
       const updated = await lockRun(run.id)
       setRun(updated)
+      playMascotReaction('success', 'Locked in! Time to shop!', 3000)
 
       // Best-effort push — locking succeeded even if this fails
       try {
@@ -197,6 +207,7 @@ function PreRunChecklist() {
       }
     } catch (err) {
       setLoadError(err.message ?? 'Failed to lock the run')
+      playMascotReaction('error', "Couldn't lock the run — try again?", 4000)
     } finally {
       setLocking(false)
     }
@@ -213,8 +224,10 @@ function PreRunChecklist() {
     try {
       const updated = await reopenRunToOpen(run.id)
       setRun(updated)
+      playMascotReaction('success', 'Back open — tell everyone!', 3000)
     } catch (err) {
       setLoadError(err.message ?? 'Failed to reopen the run')
+      playMascotReaction('error', "Couldn't reopen — try again?", 4000)
     }
   }
 

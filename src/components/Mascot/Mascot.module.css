@@ -1,0 +1,112 @@
+.container {
+  position: fixed;
+  right: 24px;
+  bottom: 88px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  animation: mascot-float 3s ease-in-out infinite;
+}
+
+.interactive {
+  cursor: pointer;
+  transition: scale 0.2s ease;
+}
+.interactive:hover {
+  scale: 1.05;
+}
+.interactive:focus-visible {
+  outline: 2px solid #d97706;
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.bubble {
+  position: relative;
+  max-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #fff;
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.bubbleVisible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tail {
+  position: absolute;
+  bottom: -6px;
+  right: calc(var(--mascot-size, 96px) / 2 - 6px);
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: #fff;
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.player {
+  width: var(--mascot-size, 96px);
+  height: var(--mascot-size, 96px);
+  /* The artboard background baked into the .riv file is square — clip it round. */
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+@keyframes mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    right: 16px;
+    bottom: 80px;
+    gap: 6px;
+  }
+
+  .player {
+    width: calc(var(--mascot-size, 96px) * 0.7);
+    height: calc(var(--mascot-size, 96px) * 0.7);
+  }
+
+  .bubble {
+    max-width: 160px;
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .tail {
+    right: calc(var(--mascot-size, 96px) * 0.35 - 6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .container {
+    animation: none;
+  }
+
+  .bubble {
+    transition: none;
+  }
+
+  .interactive {
+    transition: none;
+  }
+}
